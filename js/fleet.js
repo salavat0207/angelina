@@ -84,19 +84,17 @@ export async function createFleet({ motion, getVisitorBoatPosition, onLaunch, on
   const save = section.querySelector('#save-postcard');
   const feedback = section.querySelector('.launch-feedback');
   const caption = section.querySelector('.fleet-caption');
-  const animations = new Set();
   const fleet = [];
   let state = 'scattered';
   let geometry, shape, visitor, heartOutline;
   let scatter = [];
   let transfer;
   let currentScale = 0;
-  const position = point => `translate(${point.x}px, ${point.y}px) rotate(${point.angle || 0}deg)`;
+  const position = point => `translate(${point.x}px, ${point.y}px) rotate(${motion.matches ? 0 : point.angle || 0}deg)`;
   function animate(node, frames, options) {
-    if (motion.matches || !node.animate) return Promise.resolve();
+    if (!node.animate) return Promise.resolve();
     const animation = node.animate(frames, options);
-    animations.add(animation);
-    return animation.finished.catch(() => {}).finally(() => { animations.delete(animation); animation.cancel(); });
+    return animation.finished.catch(() => {}).finally(() => animation.cancel());
   }
   function stopDrift() {
     fleet.forEach(boat => { boat.drift?.cancel(); boat.drift = null; });
@@ -189,6 +187,7 @@ export async function createFleet({ motion, getVisitorBoatPosition, onLaunch, on
     return;
   }
   async function lightWave() {
+    if (motion.matches) return;
     const tip = geometry.points[SLOT_INDEX];
     await Promise.all(fleet.map(({ node, index }) => {
       const distance = Math.hypot(geometry.points[index].x - tip.x, geometry.points[index].y - tip.y);
@@ -207,8 +206,11 @@ export async function createFleet({ motion, getVisitorBoatPosition, onLaunch, on
     button.disabled = true;
     onLaunch();
     const tip = geometry.points[SLOT_INDEX];
-    const source = getVisitorBoatPosition();
-    if (!motion.matches && source.width && map.getScreenCTM()) {
+    const measuredSource = getVisitorBoatPosition();
+    const source = measuredSource.width && measuredSource.height ? measuredSource : {
+      x: window.innerWidth / 2 - 12, y: window.innerHeight - 40 - 9, width: 24, height: 18,
+    };
+    if (map.getScreenCTM()) {
       const destination = new DOMPoint(tip.x, tip.y).matrixTransform(map.getScreenCTM());
       const startX = source.x + source.width / 2, startY = source.y + source.height / 2;
       const dx = destination.x - startX, dy = destination.y - startY;
@@ -220,11 +222,12 @@ export async function createFleet({ motion, getVisitorBoatPosition, onLaunch, on
       document.body.append(transfer);
       const frames = Array.from({ length: 33 }, (_, i) => {
         const t = i / 32, u = 1 - t;
+        if (motion.matches) return { offset: t, transform: `translate(${dx * t}px,${dy * t}px)` };
         const x = 3 * u * u * t * dx * .12 + 3 * u * t * t * dx * .76 + t ** 3 * dx;
         const y = 3 * u * u * t * dy * .48 + 3 * u * t * t * dy * .88 + t ** 3 * dy;
         return { offset: t, transform: `translate(${x}px,${y}px) rotate(${-Math.sin(t * Math.PI) * 4}deg)` };
       });
-      await animate(transfer, frames, { duration: 800, fill: 'forwards', easing: 'ease-in-out' });
+      await animate(transfer, frames, { duration: 1100, fill: 'forwards', easing: 'ease-in-out' });
       transfer.remove();
       transfer = null;
     }
@@ -248,11 +251,11 @@ export async function createFleet({ motion, getVisitorBoatPosition, onLaunch, on
         const start = starts[i];
         return { offset: t, transform: position({ x: start.x + (target.x - start.x) * p, y: start.y + (target.y - start.y) * p, angle: start.angle + (target.angle - start.angle) * p }) };
       });
-      return animate(boat.anchor, frames, { duration: 600, delay: order.indexOf(boat) * 12, fill: 'backwards', easing: 'linear' });
+      return animate(boat.anchor, frames, { duration: 1400, delay: order.indexOf(boat) * 22, fill: 'backwards', easing: 'linear' });
     }));
     await lightWave();
     heartOutline.classList.add('is-visible');
-    await animate(heartOutline, [{ opacity: 0 }, { opacity: 1 }], { duration: 250, easing: 'ease-in-out' });
+    await animate(heartOutline, [{ opacity: 0 }, { opacity: 1 }], { duration: 400, easing: 'ease-in-out' });
     state = 'complete';
     caption.textContent = content.final.afterLaunch;
     section.classList.add('is-launched');
@@ -316,7 +319,6 @@ export async function createFleet({ motion, getVisitorBoatPosition, onLaunch, on
   motion.addEventListener('change', () => {
     if (motion.matches) {
       stopDrift();
-      animations.forEach(animation => animation.finish());
     } else drift();
   });
 }

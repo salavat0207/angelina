@@ -103,6 +103,7 @@ function videoHTML(clip, label, className = '') {
   return `<figure class="film ${className}"><div class="video-frame">
     <video data-src="${escapeHTML(clip.src)}" poster="${escapeHTML(clip.poster)}" width="300" height="533" preload="none" playsinline muted aria-label="${escapeHTML(label)}"></video>
     <button class="video-play" type="button" aria-label="Смотреть ${escapeHTML(label)}, ${escapeHTML(clip.duration)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4 21 12 8 20Z"/></svg></button>
+    <div class="video-loading" role="status" hidden><span class="video-spinner" aria-hidden="true"></span><span>Загружается…</span></div>
     <span class="video-duration">${escapeHTML(clip.duration)}</span>
     <button class="video-sound" type="button" hidden aria-pressed="false" aria-label="Включить звук">Звук</button>
     </div>${text(clip.caption, 'figcaption')}<p class="video-status" role="status" hidden>Видео не загрузилось. <a href="${escapeHTML(clip.src)}" target="_blank" rel="noopener noreferrer">Открыть в отдельной вкладке ↗</a></p></figure>`;
@@ -213,31 +214,61 @@ document.querySelectorAll('.film').forEach(film => {
   const sound = film.querySelector('.video-sound');
   const duration = film.querySelector('.video-duration');
   const status = film.querySelector('.video-status');
+  const loading = film.querySelector('.video-loading');
+  let startupTimer;
+  let active = false;
+  let attempt = 0;
   function failed() {
+    clearTimeout(startupTimer);
+    active = false;
+    loading.hidden = true;
     status.hidden = false;
     play.hidden = false;
+    play.disabled = false;
     sound.hidden = true;
     duration.hidden = false;
     video.controls = false;
   }
   video.addEventListener('error', failed);
+  video.addEventListener('playing', () => {
+    clearTimeout(startupTimer);
+    active = true;
+    loading.hidden = true;
+    status.hidden = true;
+    play.hidden = true;
+    duration.hidden = true;
+    sound.hidden = false;
+    video.controls = true;
+  });
+  ['waiting', 'stalled'].forEach(event => video.addEventListener(event, () => {
+    if (active) loading.hidden = false;
+  }));
+  video.addEventListener('canplay', () => { loading.hidden = true; });
   play.addEventListener('click', async () => {
+    const currentAttempt = ++attempt;
+    clearTimeout(startupTimer);
+    active = true;
     play.disabled = true;
+    play.hidden = true;
+    loading.hidden = false;
+    duration.hidden = true;
+    sound.hidden = false;
     video.muted = true;
     sound.setAttribute('aria-pressed', 'false');
     sound.setAttribute('aria-label', 'Включить звук');
     sound.textContent = 'Звук';
-    if (!video.hasAttribute('src')) video.src = video.dataset.src;
     video.controls = true;
     status.hidden = true;
+    startupTimer = window.setTimeout(failed, 12000);
     try {
+      if (!video.hasAttribute('src')) {
+        video.src = video.dataset.src;
+        video.load();
+      }
       const started = video.play();
-      play.hidden = true;
-      duration.hidden = true;
-      sound.hidden = false;
       await started;
-    } catch { failed(); }
-    finally { play.disabled = false; }
+    } catch { if (currentAttempt === attempt) failed(); }
+    finally { if (currentAttempt === attempt) play.disabled = false; }
   });
   sound.addEventListener('click', () => {
     video.muted = !video.muted;
